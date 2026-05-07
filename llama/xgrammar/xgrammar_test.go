@@ -145,6 +145,66 @@ func TestJSONSchemaMatcher(t *testing.T) {
 	}
 }
 
+func TestAllowedBoundsCheck(t *testing.T) {
+	mask := []int32{-1} // all bits set
+	if Allowed(mask, -1) {
+		t.Error("Allowed(mask, -1) should be false")
+	}
+	if Allowed(mask, 32) {
+		t.Error("Allowed(mask, 32) should be false (out-of-bounds)")
+	}
+	if !Allowed(mask, 0) {
+		t.Error("Allowed(mask, 0) should be true")
+	}
+}
+
+func TestNewTokenizerInfoEmptyVocab(t *testing.T) {
+	_, err := NewTokenizerInfo([]string{}, VocabRaw, nil, false)
+	if err == nil {
+		t.Fatal("expected error for empty vocab, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty vocab") {
+		t.Errorf("unexpected error string: %v", err)
+	}
+}
+
+func TestFreeIsIdempotent(t *testing.T) {
+	vocab, stops := minimalVocab()
+
+	tok, err := NewTokenizerInfo(vocab, VocabRaw, stops, false)
+	if err != nil {
+		t.Fatalf("NewTokenizerInfo: %v", err)
+	}
+	tok.Free()
+	tok.Free()
+
+	tok2, err := NewTokenizerInfo(vocab, VocabRaw, stops, false)
+	if err != nil {
+		t.Fatalf("NewTokenizerInfo: %v", err)
+	}
+	defer tok2.Free()
+
+	g, err := GrammarFromEBNF(`root ::= "ab"`)
+	if err != nil {
+		t.Fatalf("GrammarFromEBNF: %v", err)
+	}
+	cg, err := Compile(tok2, g)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	m, err := NewMatcher(cg)
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	m.Free()
+	m.Free()
+	cg.Free()
+	cg.Free()
+	g.Free()
+	g.Free()
+}
+
 func TestRejectedTokenSurfacesError(t *testing.T) {
 	vocab, stops := minimalVocab()
 	tok, _ := NewTokenizerInfo(vocab, VocabRaw, stops, false)
