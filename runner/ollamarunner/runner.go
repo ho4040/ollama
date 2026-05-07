@@ -888,7 +888,8 @@ func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 	if req.Grammar != "" || req.Schema != "" {
 		grammar, err = sample.NewGrammarSampler(s.model.(tokenizer.Tokenizer), req.Grammar, req.Schema)
 		if err != nil {
-			http.Error(w, "failed to load model vocabulary required for format", http.StatusInternalServerError)
+			slog.Error("grammar sampler init failed", "error", err)
+			http.Error(w, fmt.Sprintf("grammar sampler: %v", err), http.StatusInternalServerError)
 			return
 		}
 		defer grammar.Free()

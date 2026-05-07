@@ -1602,9 +1602,18 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 			req.Schema = string(req.Format)
 			g := llama.SchemaToGrammar(req.Format)
 			if g == nil {
-				return fmt.Errorf("invalid JSON schema in format")
+				// llama.cpp's SchemaToGrammar rejects some valid schemas
+				// (patternProperties, complex unions, etc.). The xgrammar
+				// backend can still compile from the raw schema, so when
+				// the user has opted into it we let the request through
+				// without a GBNF; the legacy backend would surface its
+				// own error downstream.
+				if os.Getenv("OLLAMA_GRAMMAR_BACKEND") != "xgrammar" {
+					return fmt.Errorf("invalid JSON schema in format")
+				}
+			} else {
+				req.Grammar = string(g)
 			}
-			req.Grammar = string(g)
 		}
 	}
 
