@@ -30,6 +30,24 @@ type xgrammarBackend struct {
 	matcher *xgrammar.Matcher
 }
 
+// freeable abstracts the four xgrammar handle types so we can clean up
+// already-allocated resources on a partial-construction error in one
+// pass rather than open-coding cascading Free() calls per failure
+// point.
+type freeable interface{ Free() }
+
+// freeAll calls Free() on each non-nil handle. Each xgrammar handle's
+// Free() is itself idempotent (nil-checks, frees, then nils its h
+// pointer and clears its finalizer), so callers may pass a slice that
+// includes typed-nil entries safely.
+func freeAll(handles ...freeable) {
+	for _, h := range handles {
+		if h != nil {
+			h.Free()
+		}
+	}
+}
+
 func newXGrammar(tok tokenizer.Tokenizer, grammarStr, schema string) (Grammar, error) {
 	vocab := tok.Vocabulary().Values
 	pieces := make([]string, len(vocab))
@@ -56,22 +74,19 @@ func newXGrammar(tok tokenizer.Tokenizer, grammarStr, schema string) (Grammar, e
 		g, err = xgrammar.GrammarFromEBNF(grammarStr)
 	}
 	if err != nil {
-		info.Free()
+		freeAll(info)
 		return nil, err
 	}
 
 	cg, err := xgrammar.Compile(info, g)
 	if err != nil {
-		g.Free()
-		info.Free()
+		freeAll(g, info)
 		return nil, err
 	}
 
 	m, err := xgrammar.NewMatcher(cg)
 	if err != nil {
-		cg.Free()
-		g.Free()
-		info.Free()
+		freeAll(cg, g, info)
 		return nil, err
 	}
 

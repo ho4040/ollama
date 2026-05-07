@@ -20,6 +20,8 @@
 # llama/xgrammar/build (i.e. `-B llama/xgrammar/build`). Out-of-tree
 # build directories are not currently supported; the archive must end
 # up at $SRCDIR/build/libollama_xgrammar.a relative to the Go file.
+#
+# This library is consumed only by ollama's Go cgo binding; no install/export rules are provided. Top-level CMakeLists.txt does not add this directory.
 
 cmake_minimum_required(VERSION 3.18)
 project(ollama_xgrammar LANGUAGES C CXX)
@@ -44,8 +46,8 @@ add_library(ollama_xgrammar STATIC
 )
 
 target_include_directories(ollama_xgrammar
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
     PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
         ${XG_ROOT}/include
         ${XG_ROOT}/3rdparty/picojson
         ${XG_ROOT}/3rdparty/dlpack/include
@@ -54,6 +56,10 @@ target_include_directories(ollama_xgrammar
 if(MSVC)
   target_compile_options(ollama_xgrammar PRIVATE /W3)
 else()
+  # -Wno-unused-parameter -Wno-pedantic suppress upstream xgrammar warnings
+  # (json_schema_converter.cc, grammar_compiler.cc, etc.); we don't control
+  # their source. Our own wrapper (csrc/xgrammar_c.cc) is clean against
+  # -Wall -Wextra without these suppressions.
   target_compile_options(ollama_xgrammar PRIVATE
       -Wall -Wextra -Wno-unused-parameter -Wno-pedantic
   )
