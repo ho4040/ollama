@@ -37,6 +37,13 @@ func newXGrammar(tok tokenizer.Tokenizer, grammarStr, schema string) (Grammar, e
 		pieces[i], _ = tok.Decode([]int32{int32(i)})
 	}
 
+	// Cleanup contract: each xgrammar.*.Free() is idempotent (nil-checks
+	// the handle, frees the C++ object, nils the handle, and clears its
+	// own finalizer), so an explicit Free() on these error paths is
+	// safe even though the constructor already attached a runtime
+	// finalizer to the same object. The explicit Free() releases the
+	// allocation immediately rather than waiting for GC; the (now
+	// no-op) finalizer fires later without double-freeing.
 	info, err := xgrammar.NewTokenizerInfo(pieces, xgrammar.VocabRaw, tok.Vocabulary().EOS, false)
 	if err != nil {
 		return nil, err

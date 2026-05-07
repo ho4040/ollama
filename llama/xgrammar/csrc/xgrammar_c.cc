@@ -189,6 +189,11 @@ int32_t xg_bitmask_size(int32_t vocab_size) {
   return xgrammar::GetBitmaskSize(vocab_size);
 }
 
+// Manual try/catch (rather than guarded()): the DLTensor must live in
+// this stack frame across the FillNextTokenBitmask call, which makes
+// wrapping the body in a guarded() lambda awkward. The catch block
+// shape mirrors the other matcher functions so error messages stay
+// consistent.
 int xg_matcher_fill_next_token_bitmask(
     xg_matcher* m,
     int32_t* bitmask,
@@ -209,6 +214,9 @@ int xg_matcher_fill_next_token_bitmask(
     t.device = DLDevice{kDLCPU, 0};
     t.ndim = 1;
     t.dtype = xgrammar::GetBitmaskDLType();
+    // `shape` is a stack local; FillNextTokenBitmask reads it
+    // synchronously and does not retain the pointer past return, so
+    // the lifetime ends safely with this frame.
     int64_t shape = xgrammar::GetBitmaskSize(vocab_size);
     t.shape = &shape;
     t.strides = nullptr;

@@ -13,6 +13,10 @@
 // Then build ollama with:
 //
 //	go build -tags xgrammar ./...
+//
+// Build command must use `-B llama/xgrammar/build` so cgo's
+// $SRCDIR/build path (see LDFLAGS below) resolves; out-of-tree build
+// directories are not currently supported.
 package xgrammar
 
 /*

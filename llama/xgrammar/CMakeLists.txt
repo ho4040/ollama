@@ -15,6 +15,11 @@
 #
 # The Go wrapper (build tag `xgrammar`) links against the resulting
 # archive. The default `go build` does not require this directory.
+#
+# NOTE: the cgo LDFLAGS in xgrammar.go assume an in-tree build dir at
+# llama/xgrammar/build (i.e. `-B llama/xgrammar/build`). Out-of-tree
+# build directories are not currently supported; the archive must end
+# up at $SRCDIR/build/libollama_xgrammar.a relative to the Go file.
 
 cmake_minimum_required(VERSION 3.18)
 project(ollama_xgrammar LANGUAGES C CXX)
@@ -29,7 +34,7 @@ endif()
 
 set(XG_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/xgrammar)
 
-file(GLOB_RECURSE XG_SOURCES "${XG_ROOT}/cpp/*.cc")
+file(GLOB_RECURSE XG_SOURCES CONFIGURE_DEPENDS "${XG_ROOT}/cpp/*.cc")
 list(FILTER XG_SOURCES EXCLUDE REGEX "${XG_ROOT}/cpp/tvm_ffi/.*\\.cc")
 
 add_library(ollama_xgrammar STATIC
