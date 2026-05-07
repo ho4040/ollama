@@ -100,6 +100,7 @@ xg_compiled_grammar* xg_compile_grammar(
 void xg_compiled_grammar_free(xg_compiled_grammar* h);
 
 // Create a stateful matcher from a compiled grammar.
+// Uses xgrammar's default max_rollback_tokens=-1 (unlimited rollback history).
 xg_matcher* xg_matcher_new(
     xg_compiled_grammar* cg,
     char* err_buf,
@@ -133,6 +134,7 @@ int xg_matcher_accept_token(
     size_t err_len);
 
 // Roll the matcher back by num_tokens steps.
+// num_tokens is the count of steps to undo (typically >= 1); see xg_matcher_new for the matcher-wide rollback budget.
 int xg_matcher_rollback(
     xg_matcher* m,
     int32_t num_tokens,

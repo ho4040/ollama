@@ -33,6 +33,7 @@ package xgrammar
 #cgo LDFLAGS: -L${SRCDIR}/build -lollama_xgrammar
 #cgo darwin LDFLAGS: -lc++
 #cgo linux LDFLAGS: -lstdc++ -lpthread
+#cgo windows LDFLAGS: -lpthread
 
 #include <stdlib.h>
 #include "xgrammar_c.h"
@@ -97,6 +98,19 @@ type TokenizerInfo struct {
 func NewTokenizerInfo(vocab []string, vocabType VocabType, stopTokens []int32, addPrefixSpace bool) (*TokenizerInfo, error) {
 	if len(vocab) == 0 {
 		return nil, errors.New("xgrammar: empty vocab")
+	}
+
+	// C.CString truncates at the first NUL byte, so a token piece
+	// containing 0x00 would silently lose data. Detect and reject
+	// instead of producing a corrupted TokenizerInfo. The C ABI would
+	// need to switch to (lengths[], data[]) pairs to support binary-
+	// safe pieces.
+	for i, s := range vocab {
+		for j := 0; j < len(s); j++ {
+			if s[j] == 0 {
+				return nil, fmt.Errorf("xgrammar: vocab piece for token id %d contains a NUL byte; binary-safe vocab is not yet supported", i)
+			}
+		}
 	}
 
 	cVocab := make([]*C.char, len(vocab))
@@ -246,6 +260,7 @@ type Matcher struct {
 }
 
 // NewMatcher creates a fresh matcher tied to a compiled grammar.
+// Created matchers have unlimited rollback history (xgrammar's default).
 func NewMatcher(cg *CompiledGrammar) (*Matcher, error) {
 	if cg == nil {
 		return nil, errors.New("xgrammar: nil compiled grammar")

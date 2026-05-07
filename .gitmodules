@@ -1,3 +1,4 @@
 [submodule "llama/xgrammar/xgrammar"]
 	path = llama/xgrammar/xgrammar
 	url = https://github.com/mlc-ai/xgrammar.git
+	shallow = true
