@@ -89,8 +89,9 @@ xg_grammar* xg_grammar_from_json_schema(
 void xg_grammar_free(xg_grammar* h);
 
 // Compile a Grammar against a TokenizerInfo. The returned CompiledGrammar
-// owns its own reference to both inputs; the caller may free the inputs
-// after this call.
+// owns its own internal copies/references; the caller is free to xg_*_free
+// the inputs immediately after this call without affecting the compiled
+// handle or any matchers later created from it.
 xg_compiled_grammar* xg_compile_grammar(
     xg_tokenizer_info* tok,
     xg_grammar* g,

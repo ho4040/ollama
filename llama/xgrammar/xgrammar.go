@@ -54,6 +54,7 @@ const errBufSize = 512
 // (FillBitmask, AcceptToken) so we don't pay an allocation per token.
 // Buffers are zeroed on return so the next caller sees a clean slate
 // for cstr() truncation at the first NUL.
+// Buffers must be returned via defer; do not retain past function scope.
 var errBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, errBufSize)

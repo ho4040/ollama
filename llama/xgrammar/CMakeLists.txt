@@ -34,6 +34,7 @@ endif()
 
 set(XG_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/xgrammar)
 
+# CONFIGURE_DEPENDS triggers reconfigure on .cc churn under CMake>=3.12; older versions ignore it and require manual cmake re-runs after upstream xgrammar updates.
 file(GLOB_RECURSE XG_SOURCES CONFIGURE_DEPENDS "${XG_ROOT}/cpp/*.cc")
 list(FILTER XG_SOURCES EXCLUDE REGEX "${XG_ROOT}/cpp/tvm_ffi/.*\\.cc")
 
