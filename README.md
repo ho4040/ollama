@@ -354,3 +354,120 @@ console.log(response.message.content);
 - [Gentoo](https://github.com/gentoo/guru/tree/master/app-misc/ollama)
 - [Flox](https://flox.dev/blog/ollama-part-one)
 - [Guix channel](https://codeberg.org/tusharhero/ollama-guix)
+
+---
+
+## Fork notes — XGrammar grammar backend
+
+This fork adds an optional [XGrammar](https://github.com/mlc-ai/xgrammar)
+backend for constrained decoding (`format=<schema>` / `format="json"`)
+in the new ollama engine. The default GBNF path is unchanged; the new
+backend is gated by a build tag and an environment variable so vanilla
+builds are unaffected.
+
+### Build
+
+```shell
+cmake -S llama/xgrammar -B llama/xgrammar/build -DCMAKE_BUILD_TYPE=Release
+cmake --build llama/xgrammar/build -j
+go build -tags xgrammar .
+```
+
+See [`docs/development.md`](./docs/development.md) for the full setup.
+
+### Run
+
+```shell
+OLLAMA_NEW_ENGINE=true OLLAMA_GRAMMAR_BACKEND=xgrammar ./ollama serve
+```
+
+`OLLAMA_XGRAMMAR_VOCAB_TYPE` (`raw` | `byte_fallback` | `byte_level`)
+overrides the auto-detected vocab encoding when the heuristic gets it
+wrong. If xgrammar fails to initialise for a particular request, the
+dispatcher logs a warning and falls back to GBNF transparently.
+
+### Validation
+
+The tables below are produced by `gemma4:26b` (a representative larger
+local model) against the 12 hand-picked schemas plus 4 non-English-key
+schemas described in the test plan, with `think=false` and the same
+seed for both backends.
+
+#### Per-schema results
+
+| Schema | GBNF | xgrammar | Notes |
+|---|---|---|---|
+| `custom_korean_keys` | pass (1.0s) | pass (1.0s) | Hangul keys: 이름, 나이, 취미 |
+| `custom_chinese_keys` | pass (0.9s) | pass (1.0s) | Hanzi keys: 姓名, 年龄, 城市 |
+| `custom_japanese_keys` | pass (1.2s) | pass (1.3s) | Kana/Kanji keys: 名前, 年齢, 趣味 |
+| `custom_mixed_unicode_values` | pass (2.6s) | pass (2.7s) | Korean values, mixed-language tags |
+| `custom_flat` | pass (1.2s) | pass (1.2s) | name/age/tags |
+| `custom_long_text` | pass (1.9s) | pass (1.9s) | multi-sentence string field |
+| `custom_deep` | pass (1.4s) | pass (1.4s) | five levels of nesting |
+| `Glaiveai2K/analyze_health_data` | pass (3.0s) | pass (3.0s) | function-call style |
+| `Glaiveai2K/analyze_social_media_mentions` | pass (1.8s) | pass (1.8s) | function-call style |
+| `Github_easy/o10009` | **err** (server) | fail (maxLength) | server rejects schema before sampling |
+| `Github_easy/o10010` | **err** (server) | fail (maxLength) | server rejects schema before sampling |
+| `Github_medium/o1` | **err** (sampler) | **pass** (4.4s) | only xgrammar accepts this schema |
+| `Github_medium/o10078` | pass (4.3s) | pass (4.2s) | |
+| `Github_hard/o10293` | fail (rating) | fail (rating) | required field omitted by model |
+| `Github_hard/o10296` | fail (rating) | fail (rating) | required field omitted by model |
+| `Github_ultra/o10335` | fail (truncated) | fail (truncated) | 140 KB schema; output exceeds 4096 tokens |
+
+`err` = HTTP 500 from the server: the request never reaches the
+sampler. `fail` = sampler ran but the response did not validate
+against the schema.
+
+#### Backend comparison summary
+
+| | GBNF | xgrammar |
+|---|---|---|
+| pass | 10 / 16 | 11 / 16 |
+| fail | 3 / 16 | 5 / 16 |
+| err  | 3 / 16 | 0 / 16 |
+
+The 3 `err` cells under GBNF (`Github_easy/o10009`, `o10010`,
+`Github_medium/o1`) are schemas that `llama.SchemaToGrammar` cannot
+express; the request fails before any sampling happens. xgrammar's
+schema-direct path accepts all three, and one of them (`Github_medium/o1`)
+becomes a passing run end-to-end. The other two reach the sampler but
+the response still violates `maxLength`/`pattern` constraints, which
+neither backend currently emits as grammar tokens.
+
+The 4 non-English-key schemas pass on both backends, confirming that
+UTF-8 multi-byte tokens are masked correctly through the cgo boundary.
+
+#### Failure causes for xgrammar (5 / 16)
+
+| Schema | Root cause |
+|---|---|
+| `Github_easy/o10009`, `o10010` | `maxLength` / `minLength` / `pattern` on string fields. xgrammar's JSON-Schema-to-grammar conversion does not emit length or pattern constraints, so the model is free to write a longer hex string. GBNF has the same limitation but the server rejects the schema earlier. |
+| `Github_hard/o10293`, `o10296` | The `rating` field is `required` deep inside `final_results.<player>`. The model substitutes `rating_delta` and the grammar matcher allows the closing brace because it cannot foresee the missing key from the partial state. |
+| `Github_ultra/o10335` | 140 KB schema; `gemma4:26b` exhausts `num_predict=4096` before completing the response. Pure model/budget limit, not backend-specific. |
+
+### Known limitations
+
+- The xgrammar wrapper assumes an in-tree CMake build directory at
+  `llama/xgrammar/build`; out-of-tree build dirs are not currently
+  supported (cgo `LDFLAGS` use `${SRCDIR}/build` directly).
+- Vocab-type detection is a heuristic over the decoded vocabulary
+  (looks for `<0xHH>` byte tokens or GPT-2-style `Ġ`). Tokenizers that
+  use neither marker default to `raw`; override with
+  `OLLAMA_XGRAMMAR_VOCAB_TYPE` if the heuristic mispredicts.
+- xgrammar `Rollback` is wired through to the C ABI but not used by
+  the new engine yet; it is exposed for future jump-forward decoding
+  work.
+
+### Syncing with upstream
+
+`origin` points at `ollama/ollama` and `fork` at this repository.
+To pick up upstream commits and rebase the integration branch on top:
+
+```shell
+git fetch origin
+git rebase origin/main                          # resolve conflicts
+git push fork xgrammar-integration --force-with-lease
+```
+
+`--force-with-lease` refuses to overwrite the fork branch if someone
+else has pushed to it in the meantime, which is safer than `--force`.
