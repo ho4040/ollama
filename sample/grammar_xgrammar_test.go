@@ -6,6 +6,8 @@ import (
 	"math"
 	"math/rand/v2"
 	"testing"
+
+	"github.com/ollama/ollama/llama/xgrammar"
 )
 
 // TestXGrammarDispatchAndJSONMask exercises the Phase 1 integration
@@ -135,4 +137,65 @@ func TestXGrammarSchemaDirect(t *testing.T) {
 		t.Error("expected at least one accepted token at JSON-start, got none")
 	}
 	t.Logf("schema-direct mask: %d allowed, %d rejected (vocab=%d)", finiteCount, infCount, len(tokens))
+}
+
+func TestDetectVocabType(t *testing.T) {
+	// SentencePiece byte-fallback: 256 "<0xHH>" tokens plus regular pieces.
+	bf := make([]string, 0, 300)
+	for i := 0; i < 256; i++ {
+		bf = append(bf, fmtHex(i))
+	}
+	bf = append(bf, "the", "of", "and", "▁hello")
+	if got := detectVocabType(bf); got != xgrammar.VocabByteFallback {
+		t.Errorf("byte-fallback vocab: got %d want %d", got, xgrammar.VocabByteFallback)
+	}
+
+	// GPT-2 byte-level: many pieces include Ġ.
+	bl := []string{"the", "Ġthe", "Ġof", "Ġand", "Ġa", "Ġto", "Ġin", "Ġis"}
+	for i := 0; i < 200; i++ {
+		bl = append(bl, "Ġtoken"+rune3(i))
+	}
+	if got := detectVocabType(bl); got != xgrammar.VocabByteLevel {
+		t.Errorf("byte-level vocab: got %d want %d", got, xgrammar.VocabByteLevel)
+	}
+
+	// Raw / SentencePiece Unigram: no special markers.
+	raw := []string{"hello", "world", "foo", "bar", "▁hello", "▁world"}
+	if got := detectVocabType(raw); got != xgrammar.VocabRaw {
+		t.Errorf("raw vocab: got %d want %d", got, xgrammar.VocabRaw)
+	}
+}
+
+func TestSelectVocabTypeOverride(t *testing.T) {
+	raw := []string{"hello", "world"}
+
+	t.Setenv("OLLAMA_XGRAMMAR_VOCAB_TYPE", "byte_fallback")
+	if got := selectVocabType(raw); got != xgrammar.VocabByteFallback {
+		t.Errorf("override byte_fallback: got %d", got)
+	}
+
+	t.Setenv("OLLAMA_XGRAMMAR_VOCAB_TYPE", "byte_level")
+	if got := selectVocabType(raw); got != xgrammar.VocabByteLevel {
+		t.Errorf("override byte_level: got %d", got)
+	}
+
+	t.Setenv("OLLAMA_XGRAMMAR_VOCAB_TYPE", "raw")
+	if got := selectVocabType(raw); got != xgrammar.VocabRaw {
+		t.Errorf("override raw: got %d", got)
+	}
+
+	t.Setenv("OLLAMA_XGRAMMAR_VOCAB_TYPE", "")
+	if got := selectVocabType(raw); got != xgrammar.VocabRaw {
+		t.Errorf("auto-detect on raw: got %d", got)
+	}
+}
+
+// fmtHex builds the literal "<0xHH>" SentencePiece byte token.
+func fmtHex(b int) string {
+	const hex = "0123456789ABCDEF"
+	return "<0x" + string(hex[b>>4]) + string(hex[b&0xf]) + ">"
+}
+
+func rune3(i int) string {
+	return string(rune('A'+i%26)) + string(rune('a'+(i/26)%26)) + string(rune('0'+i%10))
 }

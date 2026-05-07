@@ -3,7 +3,10 @@
 package sample
 
 import (
+	"log/slog"
 	"math"
+	"os"
+	"strings"
 
 	"github.com/ollama/ollama/llama/xgrammar"
 	"github.com/ollama/ollama/tokenizer"
@@ -48,12 +51,70 @@ func freeAll(handles ...freeable) {
 	}
 }
 
+// detectVocabType picks an xgrammar VocabType from the shape of the
+// decoded vocabulary. The heuristic looks for the two well-known
+// markers:
+//
+//   - SentencePiece byte-fallback exposes 256 literal "<0xHH>" tokens
+//     (Llama 1/2/3, Mistral, Mixtral, ...).
+//   - GPT-2 byte-level BPE replaces raw bytes 0..255 with a fixed set
+//     of glyphs; 'Ġ' (U+0120) substitutes the space byte and is by
+//     far the most common token among them (Qwen, GPT-2, ...).
+//
+// Vocabularies that match neither (e.g. Gemma's Unigram-style pieces)
+// fall through to RAW, which matches xgrammar's behaviour for
+// "decoded piece text is already the surface form".
+//
+// The thresholds are deliberately loose: detection runs once per
+// request, vocab sizes are 30k-200k, and the cost of a wrong answer
+// is silent grammar mismatch rather than a crash. Override via
+// OLLAMA_XGRAMMAR_VOCAB_TYPE if a future tokenizer trips the
+// heuristic.
+func detectVocabType(pieces []string) xgrammar.VocabType {
+	var byteFallbackHits, byteLevelHits int
+	for _, p := range pieces {
+		if len(p) == 6 && p[0] == '<' && p[1] == '0' && p[2] == 'x' && p[5] == '>' {
+			byteFallbackHits++
+		}
+		if strings.ContainsRune(p, 'Ġ') || strings.ContainsRune(p, 'Ċ') {
+			byteLevelHits++
+		}
+	}
+	switch {
+	case byteFallbackHits >= 200:
+		return xgrammar.VocabByteFallback
+	case byteLevelHits >= 100:
+		return xgrammar.VocabByteLevel
+	default:
+		return xgrammar.VocabRaw
+	}
+}
+
+// selectVocabType resolves the vocab type for a given decoded
+// vocabulary. OLLAMA_XGRAMMAR_VOCAB_TYPE forces a specific value
+// ("raw", "byte_fallback", "byte_level"); otherwise the auto-detector
+// decides.
+func selectVocabType(pieces []string) xgrammar.VocabType {
+	switch os.Getenv("OLLAMA_XGRAMMAR_VOCAB_TYPE") {
+	case "raw":
+		return xgrammar.VocabRaw
+	case "byte_fallback":
+		return xgrammar.VocabByteFallback
+	case "byte_level":
+		return xgrammar.VocabByteLevel
+	}
+	return detectVocabType(pieces)
+}
+
 func newXGrammar(tok tokenizer.Tokenizer, grammarStr, schema string) (Grammar, error) {
 	vocab := tok.Vocabulary().Values
 	pieces := make([]string, len(vocab))
 	for i := range vocab {
 		pieces[i], _ = tok.Decode([]int32{int32(i)})
 	}
+
+	vt := selectVocabType(pieces)
+	slog.Debug("xgrammar tokenizer info", "vocab_type", vt, "vocab_size", len(pieces))
 
 	// Cleanup contract: each xgrammar.*.Free() is idempotent (nil-checks
 	// the handle, frees the C++ object, nils the handle, and clears its
@@ -62,7 +123,7 @@ func newXGrammar(tok tokenizer.Tokenizer, grammarStr, schema string) (Grammar, e
 	// finalizer to the same object. The explicit Free() releases the
 	// allocation immediately rather than waiting for GC; the (now
 	// no-op) finalizer fires later without double-freeing.
-	info, err := xgrammar.NewTokenizerInfo(pieces, xgrammar.VocabRaw, tok.Vocabulary().EOS, false)
+	info, err := xgrammar.NewTokenizerInfo(pieces, vt, tok.Vocabulary().EOS, false)
 	if err != nil {
 		return nil, err
 	}
