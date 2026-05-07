@@ -216,3 +216,26 @@ Ollama looks for acceleration libraries in the following paths relative to the `
 * `build/lib/ollama` (for development)
 
 If the libraries are not found, Ollama will not run with any acceleration libraries.
+
+## Optional XGrammar grammar backend
+
+XGrammar is an alternate constrained-decoding backend for the new
+ollama engine, gated by the `xgrammar` build tag. Default ollama
+builds do not link against it.
+
+Build the static archive once:
+
+    cmake -S llama/xgrammar -B llama/xgrammar/build -DCMAKE_BUILD_TYPE=Release
+    cmake --build llama/xgrammar/build -j
+
+Build ollama with the tag:
+
+    go build -tags xgrammar .
+
+Run with the backend enabled:
+
+    OLLAMA_GRAMMAR_BACKEND=xgrammar OLLAMA_NEW_ENGINE=true ./ollama serve
+
+If init fails (e.g. an unsupported grammar construct), the
+dispatcher logs a warning and falls back to the GBNF backend so
+the request still serves.

@@ -296,3 +296,26 @@ jobs:
         run: |
           make -f Makefile.sync clean checkout apply-patches sync
           git diff --compact-summary --exit-code
+
+  xgrammar:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache-dependency-path: |
+            go.sum
+            Makefile.sync
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
+      - name: Build xgrammar static archive
+        run: |
+          cmake -S llama/xgrammar -B llama/xgrammar/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build llama/xgrammar/build -j
+      - name: go test (xgrammar tag)
+        run: go test -tags xgrammar -race ./sample/... ./llama/xgrammar/...
