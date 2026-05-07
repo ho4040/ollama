@@ -3,7 +3,7 @@
 // C ABI implementation. Wraps xgrammar's C++ classes behind opaque
 // handles and translates C++ exceptions into return-code + error string.
 
-#include "xgrammar_c.h"
+#include "../xgrammar_c.h"
 
 #include <dlpack/dlpack.h>
 #include <xgrammar/compiler.h>

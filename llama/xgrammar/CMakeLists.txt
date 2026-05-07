@@ -34,7 +34,7 @@ list(FILTER XG_SOURCES EXCLUDE REGEX "${XG_ROOT}/cpp/tvm_ffi/.*\\.cc")
 
 add_library(ollama_xgrammar STATIC
     ${XG_SOURCES}
-    xgrammar_c.cc
+    csrc/xgrammar_c.cc
 )
 
 target_include_directories(ollama_xgrammar
