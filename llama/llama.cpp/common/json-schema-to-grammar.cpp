@@ -426,20 +426,105 @@ private:
                 } else if (c == '[') {
                     std::string square_brackets = std::string(1, c);
                     i++;
+                    // Translate regex character-class escapes into the narrower set the
+                    // GBNF parser accepts (parse_char in src/llama-grammar.cpp).
+                    // Without this, schemas with patterns like "[a-z\\.]" produced
+                    // grammars rejected as "unknown escape".
+                    bool has_literal_dash = false;
+                    bool trailing_backslash = false;
                     while (i < length && sub_pattern[i] != ']') {
-                        if (sub_pattern[i] == '\\') {
-                            square_brackets += sub_pattern.substr(i, 2);
-                            i += 2;
-                        } else {
+                        if (sub_pattern[i] != '\\') {
                             square_brackets += sub_pattern[i];
                             i++;
+                            continue;
+                        }
+                        if (i + 1 >= length) {
+                            trailing_backslash = true;
+                            _errors.push_back("Trailing backslash in character class");
+                            break;
+                        }
+                        char next = sub_pattern[i + 1];
+                        switch (next) {
+                            // Escapes the GBNF parser already understands.
+                            case 'n': case 'r': case 't':
+                            case '\\': case '"':
+                            case '[': case ']':
+                                square_brackets += sub_pattern.substr(i, 2);
+                                i += 2;
+                                break;
+                            // Hex / unicode escapes: consume the escape
+                            // together with its hex digits as a single unit
+                            // so the GBNF parser sees one escape, not a
+                            // string of redundant character alternatives.
+                            case 'x': case 'u': case 'U': {
+                                size_t n = (next == 'x') ? 2 : (next == 'u' ? 4 : 8);
+                                if (i + 2 + n > length) {
+                                    _errors.push_back(std::string("Truncated \\") + next + " escape in character class");
+                                    i = length;
+                                    break;
+                                }
+                                for (size_t k = 0; k < n; k++) {
+                                    if (!std::isxdigit(static_cast<unsigned char>(sub_pattern[i + 2 + k]))) {
+                                        _errors.push_back(std::string("Invalid hex digit in \\") + next + " escape");
+                                        break;
+                                    }
+                                }
+                                square_brackets += sub_pattern.substr(i, 2 + n);
+                                i += 2 + n;
+                                break;
+                            }
+                            // PCRE-style shorthand character classes
+                            // (\d, \w, \s and their negations) are
+                            // outside the ECMA 262 subset that JSON
+                            // Schema recommends. Reject them rather
+                            // than silently treating the letter as a
+                            // literal, which would invert user intent.
+                            case 'd': case 'D':
+                            case 'w': case 'W':
+                            case 's': case 'S':
+                                _errors.push_back(
+                                    std::string("Regex shorthand '\\") + next +
+                                    "' inside a character class is not supported "
+                                    "(ECMA 262 subset)");
+                                i += 2;
+                                break;
+                            // Literal dash needs to land at the edge of
+                            // the class so the GBNF parser does not read
+                            // it as a range separator. Defer emission
+                            // until we close the class.
+                            case '-':
+                                has_literal_dash = true;
+                                i += 2;
+                                break;
+                            // Regex metacharacters that are already
+                            // literal inside a character class: drop the
+                            // redundant backslash so the grammar parser
+                            // sees the bare character.
+                            case '.': case '+': case '?': case '*':
+                            case '(': case ')': case '{': case '}':
+                            case '^': case '$': case '|': case '/':
+                                square_brackets += next;
+                                i += 2;
+                                break;
+                            default:
+                                _warnings.push_back(
+                                    std::string("Unknown regex escape '\\") + next +
+                                    "' inside a character class; treating as literal '" + next + "'.");
+                                square_brackets += next;
+                                i += 2;
+                                break;
                         }
                     }
-                    if (i >= length) {
+                    if (!trailing_backslash && i >= length) {
                         _errors.push_back("Unbalanced square brackets");
                     }
+                    if (has_literal_dash) {
+                        square_brackets += '-';
+                    }
                     square_brackets += ']';
-                    i++;
+                    if (i < length) {
+                        i++;
+                    }
                     seq.emplace_back(square_brackets, false);
                 } else if (c == '|') {
                     seq.emplace_back("|", false);
