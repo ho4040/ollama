@@ -1503,6 +1503,7 @@ type CompletionRequest struct {
 	Options *api.Options
 
 	Grammar  string // set before sending the request to the subprocess
+	Schema   string // raw JSON schema, preserved alongside Grammar so backends that prefer schema-direct compilation (e.g. xgrammar) can skip the GBNF round-trip
 	Shift    bool
 	Truncate bool
 
@@ -1593,7 +1594,12 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 				return fmt.Errorf("invalid format: %q; expected \"json\" or a valid JSON Schema object", req.Format)
 			}
 
-			// User provided a JSON schema
+			// User provided a JSON schema. Preserve the raw schema for
+			// backends that prefer schema-direct compilation, and also
+			// produce the GBNF form so the default GBNF backend (and
+			// any backend that fails to use the schema directly) keeps
+			// working unchanged.
+			req.Schema = string(req.Format)
 			g := llama.SchemaToGrammar(req.Format)
 			if g == nil {
 				return fmt.Errorf("invalid JSON schema in format")

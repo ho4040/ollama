@@ -13,12 +13,16 @@ import (
 // expected by the new-engine Sampler. Selected via
 // OLLAMA_GRAMMAR_BACKEND=xgrammar.
 //
-// Phase 1: the GBNF string produced by ollama (via
-// llama.SchemaToGrammar for JSON schema requests, or the static
-// grammarJSON for format=json) is passed to XGrammar's EBNF parser.
-// XGrammar accepts a superset of the dialects we emit; if a request
-// turns out to use a construct XGrammar can't parse, the dispatcher
-// falls back to the GBNF backend with a warning.
+// When the request originated from a JSON schema (format=<object>),
+// the server propagates the raw schema alongside the GBNF string and
+// this backend prefers Grammar::FromJSONSchema. The legacy GBNF input
+// remains as a fallback so format="json" (which has no schema) and
+// any caller-supplied raw GBNF still work.
+//
+// llama.cpp's GBNF dialect is not a strict subset of XGrammar's EBNF
+// (e.g. top-level `|` alternation is rejected), so the schema-direct
+// path is the only one we expect to succeed for typical structured
+// output requests.
 type xgrammarBackend struct {
 	tok     *xgrammar.TokenizerInfo
 	gram    *xgrammar.Grammar
@@ -26,7 +30,7 @@ type xgrammarBackend struct {
 	matcher *xgrammar.Matcher
 }
 
-func newXGrammar(tok tokenizer.Tokenizer, grammarStr string) (Grammar, error) {
+func newXGrammar(tok tokenizer.Tokenizer, grammarStr, schema string) (Grammar, error) {
 	vocab := tok.Vocabulary().Values
 	pieces := make([]string, len(vocab))
 	for i := range vocab {
@@ -38,7 +42,12 @@ func newXGrammar(tok tokenizer.Tokenizer, grammarStr string) (Grammar, error) {
 		return nil, err
 	}
 
-	g, err := xgrammar.GrammarFromEBNF(grammarStr)
+	var g *xgrammar.Grammar
+	if schema != "" {
+		g, err = xgrammar.GrammarFromJSONSchema(schema, true, true)
+	} else {
+		g, err = xgrammar.GrammarFromEBNF(grammarStr)
+	}
 	if err != nil {
 		info.Free()
 		return nil, err

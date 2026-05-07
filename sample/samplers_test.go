@@ -115,7 +115,7 @@ func TestGrammar(t *testing.T) {
 	# Optional space: by convention, applied in this grammar after literal chars when allowed
 	ws ::= ([ \t\n] ws)?
 	`
-	grammar, err := NewGrammarSampler(tokenizer, grammarJSON)
+	grammar, err := NewGrammarSampler(tokenizer, grammarJSON, "")
 	if err != nil {
 		t.Fatal(err)
 	}

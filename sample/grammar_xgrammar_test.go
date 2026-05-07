@@ -39,7 +39,7 @@ func TestXGrammarDispatchAndJSONMask(t *testing.T) {
 	ws ::= ([ \t\n] ws)?
 	`
 
-	g, err := NewGrammarSampler(tk, grammarJSON)
+	g, err := NewGrammarSampler(tk, grammarJSON, "")
 	if err != nil {
 		t.Fatalf("NewGrammarSampler with xgrammar: %v", err)
 	}
@@ -78,4 +78,59 @@ func TestXGrammarDispatchAndJSONMask(t *testing.T) {
 		t.Error("expected at least one accepted token at JSON start, got none (mask may be over-restrictive)")
 	}
 	t.Logf("xgrammar JSON-start mask: %d allowed, %d rejected (vocab=%d)", finiteCount, infCount, len(tokens))
+}
+
+// TestXGrammarSchemaDirect exercises the Phase 2 path: when the
+// caller passes a raw JSON schema, the backend should bypass the
+// llama.cpp GBNF round-trip (which XGrammar's EBNF parser cannot
+// fully accept due to dialect differences) and compile the schema
+// directly via Grammar::FromJSONSchema.
+//
+// Regression guard: a Phase 1 implementation that fed the GBNF to
+// FromEBNF failed at runtime with "Expect element, but got |"
+// against ollama's emitted GBNF.
+func TestXGrammarSchemaDirect(t *testing.T) {
+	t.Setenv("OLLAMA_GRAMMAR_BACKEND", "xgrammar")
+	tk := modelHelper(t)
+
+	const schema = `{"type":"object","required":["name","age"],"properties":{"name":{"type":"string"},"age":{"type":"integer"}}}`
+
+	// Pass an empty grammarStr to prove the backend used the
+	// schema, not the GBNF.
+	g, err := NewGrammarSampler(tk, "", schema)
+	if err != nil {
+		t.Fatalf("NewGrammarSampler with schema: %v", err)
+	}
+	defer g.Free()
+
+	if _, ok := g.(*xgrammarBackend); !ok {
+		t.Fatalf("dispatcher returned %T; expected *xgrammarBackend", g)
+	}
+
+	logits := make([]float32, len(tk.Vocabulary().Values))
+	for i := range logits {
+		logits[i] = rand.Float32()
+	}
+	tokens := make([]token, len(logits))
+	for i := range tokens {
+		tokens[i] = token{id: int32(i), value: logits[i]}
+	}
+
+	g.Apply(tokens)
+
+	infCount, finiteCount := 0, 0
+	for _, tk := range tokens {
+		if math.IsInf(float64(tk.value), -1) {
+			infCount++
+		} else {
+			finiteCount++
+		}
+	}
+	if infCount == 0 {
+		t.Error("expected at least one rejected token at JSON-start, got none")
+	}
+	if finiteCount == 0 {
+		t.Error("expected at least one accepted token at JSON-start, got none")
+	}
+	t.Logf("schema-direct mask: %d allowed, %d rejected (vocab=%d)", finiteCount, infCount, len(tokens))
 }

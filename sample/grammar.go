@@ -29,6 +29,11 @@ type Grammar interface {
 // When the env var requests xgrammar but the binary was built without
 // the `xgrammar` build tag, this falls back to the GBNF backend with
 // a single warning so the request still serves.
-func NewGrammarSampler(tok tokenizer.Tokenizer, grammarStr string) (Grammar, error) {
-	return newGrammarSampler(tok, grammarStr)
+//
+// schema is the raw JSON schema if the request was driven by
+// format=<schema>; backends that compile schemas directly (xgrammar)
+// prefer it. grammarStr is the GBNF form ollama already produces and
+// is the only input the legacy backend understands.
+func NewGrammarSampler(tok tokenizer.Tokenizer, grammarStr, schema string) (Grammar, error) {
+	return newGrammarSampler(tok, grammarStr, schema)
 }

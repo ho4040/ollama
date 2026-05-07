@@ -885,8 +885,8 @@ func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 
 	var grammar sample.Grammar
 	var err error
-	if req.Grammar != "" {
-		grammar, err = sample.NewGrammarSampler(s.model.(tokenizer.Tokenizer), req.Grammar)
+	if req.Grammar != "" || req.Schema != "" {
+		grammar, err = sample.NewGrammarSampler(s.model.(tokenizer.Tokenizer), req.Grammar, req.Schema)
 		if err != nil {
 			http.Error(w, "failed to load model vocabulary required for format", http.StatusInternalServerError)
 			return
