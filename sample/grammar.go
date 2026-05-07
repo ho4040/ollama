@@ -7,6 +7,11 @@ import "github.com/ollama/ollama/tokenizer"
 // The default backend is GBNF via llama.cpp (see grammar_llama.go).
 // An optional XGrammar backend lives behind the `xgrammar` build tag
 // and is selected at runtime via OLLAMA_GRAMMAR_BACKEND=xgrammar.
+//
+// External implementations are blocked by design: Apply takes the
+// unexported `token` type, so only this package can satisfy the
+// interface. New methods can therefore be added without breaking
+// downstream packages.
 type Grammar interface {
 	// Apply masks tokens that would violate the grammar by setting
 	// their logit to -Inf. The slice is modified in place.
@@ -17,6 +22,11 @@ type Grammar interface {
 
 	// Free releases any backend-held resources.
 	Free()
+
+	// Backend reports which constrained-decoding backend is in use,
+	// e.g. "gbnf" or "xgrammar". Useful for tests and observability
+	// when the dispatcher silently falls back to the default backend.
+	Backend() string
 }
 
 // NewGrammarSampler constructs the configured grammar backend.

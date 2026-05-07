@@ -41,6 +41,7 @@ func (s *Sampler) Sample(logits []float32) (int32, error) {
 	if s.grammar != nil {
 		// optimization: first check if the max logit is accepted by the grammar
 		// if the max logit is rejected, apply the grammar to all logits (slower)
+		// Strategy: first try greedy with mask, fall back to full mask + resample.
 		top := []token{t}
 		s.grammar.Apply(top)
 		if !math.IsInf(float64(top[0].value), -1) {

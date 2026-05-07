@@ -15,7 +15,7 @@ import (
 //
 // When the request originated from a JSON schema (format=<object>),
 // the server propagates the raw schema alongside the GBNF string and
-// this backend prefers Grammar::FromJSONSchema. The legacy GBNF input
+// this backend prefers GrammarFromJSONSchema. The legacy GBNF input
 // remains as a fallback so format="json" (which has no schema) and
 // any caller-supplied raw GBNF still work.
 //
@@ -130,3 +130,5 @@ func (b *xgrammarBackend) Free() {
 		b.tok.Free()
 	}
 }
+
+func (b *xgrammarBackend) Backend() string { return "xgrammar" }

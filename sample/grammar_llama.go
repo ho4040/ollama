@@ -7,8 +7,8 @@ import (
 	"github.com/ollama/ollama/tokenizer"
 )
 
-// llamaGrammar is the legacy GBNF backend backed by llama.cpp.
-type llamaGrammar struct {
+// llamaBackend is the legacy GBNF backend backed by llama.cpp.
+type llamaBackend struct {
 	grammar *llama.Grammar
 }
 
@@ -24,10 +24,10 @@ func newLlamaGrammar(tok tokenizer.Tokenizer, grammarStr string) (Grammar, error
 	if grammar == nil {
 		return nil, errors.New("sample: failed to initialize grammar")
 	}
-	return &llamaGrammar{grammar: grammar}, nil
+	return &llamaBackend{grammar: grammar}, nil
 }
 
-func (g *llamaGrammar) Apply(tokens []token) {
+func (g *llamaBackend) Apply(tokens []token) {
 	tds := make([]llama.TokenData, len(tokens))
 	for i, t := range tokens {
 		tds[i].ID = t.id
@@ -39,6 +39,8 @@ func (g *llamaGrammar) Apply(tokens []token) {
 	}
 }
 
-func (g *llamaGrammar) Accept(id int32) { g.grammar.Accept(id) }
+func (g *llamaBackend) Accept(id int32) { g.grammar.Accept(id) }
 
-func (g *llamaGrammar) Free() { g.grammar.Free() }
+func (g *llamaBackend) Free() { g.grammar.Free() }
+
+func (g *llamaBackend) Backend() string { return "gbnf" }

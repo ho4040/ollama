@@ -7,6 +7,12 @@
 //
 // All handles are opaque pointers; ownership is held by the caller and
 // must be released with the matching xg_*_free function.
+//
+// Error buffer policy: every function that reports failure takes an
+// (err_buf, err_len) pair. On error, the wrapper writes a NUL-terminated
+// human-readable message into err_buf, truncating to err_len-1 bytes if
+// the underlying message is longer (so callers can rely on a NUL
+// terminator). Pass err_buf=NULL or err_len=0 to discard the message.
 
 #ifndef OLLAMA_XGRAMMAR_C_H_
 #define OLLAMA_XGRAMMAR_C_H_
@@ -25,6 +31,14 @@ typedef struct xg_compiled_grammar xg_compiled_grammar;
 typedef struct xg_matcher xg_matcher;
 
 // Vocab encoding hint passed to TokenizerInfo. Mirrors xgrammar::VocabType.
+//
+// Choose based on the model's tokenizer family:
+//   - XG_VOCAB_RAW: SentencePiece/Unigram-style models where the
+//     decoded piece text is already the surface form (e.g. Gemma).
+//   - XG_VOCAB_BYTE_FALLBACK: SentencePiece BPE with byte-fallback
+//     tokens (e.g. Llama, Mistral).
+//   - XG_VOCAB_BYTE_LEVEL: byte-level BPE (e.g. GPT-2/Qwen variants
+//     using the GPT-2 byte-to-unicode mapping).
 typedef enum {
   XG_VOCAB_RAW = 0,
   XG_VOCAB_BYTE_FALLBACK = 1,

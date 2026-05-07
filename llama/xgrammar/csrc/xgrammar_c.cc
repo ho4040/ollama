@@ -57,7 +57,10 @@ struct xg_compiled_grammar {
 
 struct xg_matcher {
   xgrammar::GrammarMatcher matcher;
-  int32_t vocab_size;  // cached from TokenizerInfo for bitmask shape checks.
+  // Cached vocab size from the TokenizerInfo used to compile the
+  // grammar; used to reject mismatched bitmask buffers in
+  // xg_matcher_fill_next_token_bitmask before invoking the matcher.
+  int32_t vocab_size;
 };
 
 extern "C" {
@@ -278,7 +281,7 @@ void xg_matcher_reset(xg_matcher* m) {
   try {
     m->matcher.Reset();
   } catch (...) {
-    // Reset() is not documented as throwing; swallow defensively.
+    // swallow: query/reset functions should not fail; defensive.
   }
 }
 
@@ -287,6 +290,7 @@ bool xg_matcher_is_terminated(xg_matcher* m) {
   try {
     return m->matcher.IsTerminated();
   } catch (...) {
+    // swallow: query functions should not fail; defensive.
     return false;
   }
 }
@@ -296,6 +300,7 @@ bool xg_matcher_is_completed(xg_matcher* m) {
   try {
     return m->matcher.IsCompleted();
   } catch (...) {
+    // swallow: query functions should not fail; defensive.
     return false;
   }
 }

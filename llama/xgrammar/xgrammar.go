@@ -17,6 +17,14 @@
 // Build command must use `-B llama/xgrammar/build` so cgo's
 // $SRCDIR/build path (see LDFLAGS below) resolves; out-of-tree build
 // directories are not currently supported.
+//
+// Resource lifetime: each handle type (TokenizerInfo, Grammar,
+// CompiledGrammar, Matcher) has both a runtime finalizer set in its
+// constructor and an explicit Free() method. Free() is idempotent —
+// it nil-checks the handle, frees the underlying C++ object, nils the
+// handle, and clears its own finalizer — so callers may freely call
+// Free() on success or error paths without risking a double-free when
+// the finalizer later runs.
 package xgrammar
 
 /*
@@ -35,10 +43,35 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sync"
 	"unsafe"
 )
 
 const errBufSize = 512
+
+// errBufPool reuses error scratch buffers across the hot path
+// (FillBitmask, AcceptToken) so we don't pay an allocation per token.
+// Buffers are zeroed on return so the next caller sees a clean slate
+// for cstr() truncation at the first NUL.
+var errBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, errBufSize)
+		return &b
+	},
+}
+
+func getErrBuf() *[]byte {
+	bp := errBufPool.Get().(*[]byte)
+	b := *bp
+	for i := range b {
+		b[i] = 0
+	}
+	return bp
+}
+
+func putErrBuf(bp *[]byte) {
+	errBufPool.Put(bp)
+}
 
 // VocabType selects how token strings in the vocab were encoded.
 type VocabType int
@@ -81,7 +114,9 @@ func NewTokenizerInfo(vocab []string, vocabType VocabType, stopTokens []int32, a
 		stopPtr = (*C.int32_t)(unsafe.Pointer(&stopTokens[0]))
 	}
 
-	errBuf := make([]byte, errBufSize)
+	bp := getErrBuf()
+	defer putErrBuf(bp)
+	errBuf := *bp
 	h := C.xg_tokenizer_info_new(
 		(**C.char)(unsafe.Pointer(&cVocab[0])),
 		C.int32_t(len(vocab)),
@@ -124,7 +159,9 @@ func GrammarFromEBNF(ebnf string) (*Grammar, error) {
 	cs := C.CString(ebnf)
 	defer C.free(unsafe.Pointer(cs))
 
-	errBuf := make([]byte, errBufSize)
+	bp := getErrBuf()
+	defer putErrBuf(bp)
+	errBuf := *bp
 	h := C.xg_grammar_from_ebnf(cs, (*C.char)(unsafe.Pointer(&errBuf[0])), C.size_t(len(errBuf)))
 	if h == nil {
 		return nil, fmt.Errorf("xgrammar: FromEBNF: %s", cstr(errBuf))
@@ -139,7 +176,9 @@ func GrammarFromJSONSchema(schema string, anyWhitespace, strictMode bool) (*Gram
 	cs := C.CString(schema)
 	defer C.free(unsafe.Pointer(cs))
 
-	errBuf := make([]byte, errBufSize)
+	bp := getErrBuf()
+	defer putErrBuf(bp)
+	errBuf := *bp
 	h := C.xg_grammar_from_json_schema(
 		cs,
 		C.bool(anyWhitespace),
@@ -177,7 +216,9 @@ func Compile(t *TokenizerInfo, g *Grammar) (*CompiledGrammar, error) {
 	if t == nil || g == nil {
 		return nil, errors.New("xgrammar: nil tokenizer or grammar")
 	}
-	errBuf := make([]byte, errBufSize)
+	bp := getErrBuf()
+	defer putErrBuf(bp)
+	errBuf := *bp
 	h := C.xg_compile_grammar(t.h, g.h, (*C.char)(unsafe.Pointer(&errBuf[0])), C.size_t(len(errBuf)))
 	if h == nil {
 		return nil, fmt.Errorf("xgrammar: Compile: %s", cstr(errBuf))
@@ -209,7 +250,9 @@ func NewMatcher(cg *CompiledGrammar) (*Matcher, error) {
 	if cg == nil {
 		return nil, errors.New("xgrammar: nil compiled grammar")
 	}
-	errBuf := make([]byte, errBufSize)
+	bp := getErrBuf()
+	defer putErrBuf(bp)
+	errBuf := *bp
 	h := C.xg_matcher_new(cg.h, (*C.char)(unsafe.Pointer(&errBuf[0])), C.size_t(len(errBuf)))
 	if h == nil {
 		return nil, fmt.Errorf("xgrammar: Matcher: %s", cstr(errBuf))
@@ -237,7 +280,9 @@ func (m *Matcher) VocabSize() int32 { return m.vocabSize }
 // (i.e. some tokens are rejected); false signals that every token is
 // allowed and the caller may skip masking.
 func (m *Matcher) FillBitmask() ([]int32, bool, error) {
-	errBuf := make([]byte, errBufSize)
+	bp := getErrBuf()
+	defer putErrBuf(bp)
+	errBuf := *bp
 	rc := C.xg_matcher_fill_next_token_bitmask(
 		m.h,
 		(*C.int32_t)(unsafe.Pointer(&m.bitmask[0])),
@@ -267,7 +312,9 @@ func Allowed(bitmask []int32, tok int32) bool {
 
 // AcceptToken feeds a sampled token back into the matcher.
 func (m *Matcher) AcceptToken(tok int32) error {
-	errBuf := make([]byte, errBufSize)
+	bp := getErrBuf()
+	defer putErrBuf(bp)
+	errBuf := *bp
 	rc := C.xg_matcher_accept_token(
 		m.h,
 		C.int32_t(tok),
@@ -286,7 +333,9 @@ func (m *Matcher) AcceptToken(tok int32) error {
 
 // Rollback rolls the matcher back by n tokens.
 func (m *Matcher) Rollback(n int) error {
-	errBuf := make([]byte, errBufSize)
+	bp := getErrBuf()
+	defer putErrBuf(bp)
+	errBuf := *bp
 	rc := C.xg_matcher_rollback(
 		m.h,
 		C.int32_t(n),
@@ -318,8 +367,9 @@ func (m *Matcher) Free() {
 	runtime.SetFinalizer(m, nil)
 }
 
-// cstr converts a null-terminated byte buffer (filled by C) to a
-// trimmed Go string.
+// cstr converts a null-terminated byte buffer (typically the err_buf
+// scratch passed into the C wrapper) into a trimmed Go string,
+// stopping at the first NUL.
 func cstr(buf []byte) string {
 	for i, b := range buf {
 		if b == 0 {
