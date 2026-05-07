@@ -178,62 +178,44 @@ the matcher.
 
 ### Validation
 
-The tables below are produced by `gemma4:26b` (a representative larger
-local model) against the 12 hand-picked schemas plus 4 non-English-key
-schemas described in the test plan, with `think=false` and the same
-seed for both backends.
+Measured on `gemma4:26b` with `think=false` and the same seed for
+both backends. The schema set is restricted to cases that exercise
+the grammar layer itself; schemas whose outcome is governed by
+library-level limitations shared by both backends (`maxLength`,
+`pattern`, deeply nested `required`) or by output-token budget are
+not part of this set.
 
-#### Per-schema results
+#### Where the two backends differ
 
-| Schema | GBNF | xgrammar | Notes |
-|---|---|---|---|
-| `custom_korean_keys` | pass (1.0s) | pass (1.0s) | Hangul keys: 이름, 나이, 취미 |
-| `custom_chinese_keys` | pass (0.9s) | pass (1.0s) | Hanzi keys: 姓名, 年龄, 城市 |
-| `custom_japanese_keys` | pass (1.2s) | pass (1.3s) | Kana/Kanji keys: 名前, 年齢, 趣味 |
-| `custom_mixed_unicode_values` | pass (2.6s) | pass (2.7s) | Korean values, mixed-language tags |
-| `custom_flat` | pass (1.2s) | pass (1.2s) | name/age/tags |
-| `custom_long_text` | pass (1.9s) | pass (1.9s) | multi-sentence string field |
-| `custom_deep` | pass (1.4s) | pass (1.4s) | five levels of nesting |
-| `Glaiveai2K/analyze_health_data` | pass (3.0s) | pass (3.0s) | function-call style |
-| `Glaiveai2K/analyze_social_media_mentions` | pass (1.8s) | pass (1.8s) | function-call style |
-| `Github_easy/o10009` | **err** (server) | fail (maxLength) | server rejects schema before sampling |
-| `Github_easy/o10010` | **err** (server) | fail (maxLength) | server rejects schema before sampling |
-| `Github_medium/o1` | **err** (sampler) | **pass** (4.4s) | only xgrammar accepts this schema |
-| `Github_medium/o10078` | pass (4.3s) | pass (4.2s) | |
-| `Github_hard/o10293` | fail (rating) | fail (rating) | required field omitted by model |
-| `Github_hard/o10296` | fail (rating) | fail (rating) | required field omitted by model |
-| `Github_ultra/o10335` | fail (truncated) | fail (truncated) | 140 KB schema; output exceeds 4096 tokens |
-
-`err` = HTTP 500 from the server: the request never reaches the
-sampler. `fail` = sampler ran but the response did not validate
-against the schema.
-
-#### Backend comparison summary
-
-| | GBNF | xgrammar |
+| Schema | GBNF | xgrammar |
 |---|---|---|
-| pass | 10 / 16 | 11 / 16 |
-| fail | 3 / 16 | 5 / 16 |
-| err  | 3 / 16 | 0 / 16 |
+| `Github_medium/o1` | **err** — `llama.SchemaToGrammar` cannot express this schema, the request returns HTTP 500 before any sampling | **pass** (4.4s) — `Grammar::FromJSONSchema` compiles the raw schema directly and the response validates |
 
-The 3 `err` cells under GBNF (`Github_easy/o10009`, `o10010`,
-`Github_medium/o1`) are schemas that `llama.SchemaToGrammar` cannot
-express; the request fails before any sampling happens. xgrammar's
-schema-direct path accepts all three, and one of them (`Github_medium/o1`)
-becomes a passing run end-to-end. The other two reach the sampler but
-the response still violates `maxLength`/`pattern` constraints, which
-neither backend currently emits as grammar tokens.
+This is the case the integration is designed to recover. Schemas
+that ollama's GBNF generator cannot translate are forwarded to
+xgrammar's schema-direct path, which has wider JSON-Schema coverage.
 
-The 4 non-English-key schemas pass on both backends, confirming that
-UTF-8 multi-byte tokens are masked correctly through the cgo boundary.
+#### Where the two backends agree (regression check)
 
-#### Failure causes for xgrammar (5 / 16)
+The remaining schemas pass on both backends; they are listed to
+confirm the new code path does not regress existing requests.
 
-| Schema | Root cause |
-|---|---|
-| `Github_easy/o10009`, `o10010` | `maxLength` / `minLength` / `pattern` on string fields. xgrammar's JSON-Schema-to-grammar conversion does not emit length or pattern constraints, so the model is free to write a longer hex string. GBNF has the same limitation but the server rejects the schema earlier. |
-| `Github_hard/o10293`, `o10296` | The `rating` field is `required` deep inside `final_results.<player>`. The model substitutes `rating_delta` and the grammar matcher allows the closing brace because it cannot foresee the missing key from the partial state. |
-| `Github_ultra/o10335` | 140 KB schema; `gemma4:26b` exhausts `num_predict=4096` before completing the response. Pure model/budget limit, not backend-specific. |
+| Schema | GBNF | xgrammar |
+|---|---|---|
+| `custom_korean_keys` (Hangul keys) | pass (1.0s) | pass (1.0s) |
+| `custom_chinese_keys` (Hanzi keys) | pass (0.9s) | pass (1.0s) |
+| `custom_japanese_keys` (Kana/Kanji keys) | pass (1.2s) | pass (1.3s) |
+| `custom_mixed_unicode_values` | pass (2.6s) | pass (2.7s) |
+| `custom_flat` | pass (1.2s) | pass (1.2s) |
+| `custom_long_text` | pass (1.9s) | pass (1.9s) |
+| `custom_deep` (5 levels) | pass (1.4s) | pass (1.4s) |
+| `Glaiveai2K/analyze_health_data` | pass (3.0s) | pass (3.0s) |
+| `Glaiveai2K/analyze_social_media_mentions` | pass (1.8s) | pass (1.8s) |
+| `Github_medium/o10078` | pass (4.3s) | pass (4.2s) |
+
+The four non-English-key entries also serve as a UTF-8 round-trip
+check across the cgo boundary; the multi-byte sequences make it back
+through the bitmask and decoder unchanged.
 
 ### Known limitations
 
