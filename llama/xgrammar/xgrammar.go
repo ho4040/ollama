@@ -43,6 +43,7 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"strings"
 	"sync"
@@ -95,27 +96,41 @@ type TokenizerInfo struct {
 // NewTokenizerInfo constructs a TokenizerInfo from a list of decoded
 // token strings, the EOS/stop token ids, and a vocab encoding hint.
 //
-// Note: token pieces with embedded NUL bytes are not supported by this
-// thin wrapper. If a future model requires binary-safe pieces, extend
-// the C ABI to take (lengths[], data[]) instead.
+// Token pieces with embedded NUL bytes (typically reserved/unused
+// special tokens that some tokenizers expose as 0x00) are replaced
+// with the empty string so the C ABI's NUL-terminated string contract
+// is preserved. Real surface-form pieces never contain NUL, so the
+// substitution is observationally equivalent for grammar matching.
 func NewTokenizerInfo(vocab []string, vocabType VocabType, stopTokens []int32, addPrefixSpace bool) (*TokenizerInfo, error) {
 	if len(vocab) == 0 {
 		return nil, errors.New("xgrammar: empty vocab")
 	}
 
-	// C.CString truncates at the first NUL byte, so a token piece
-	// containing 0x00 would silently lose data. Detect and reject
-	// instead of producing a corrupted TokenizerInfo. The C ABI would
-	// need to switch to (lengths[], data[]) pairs to support binary-
-	// safe pieces.
-	for i, s := range vocab {
+	// C.CString would silently truncate at the first NUL byte. Replace
+	// the affected pieces with the empty string and log a single Debug
+	// line per call so the substitution is auditable without spamming
+	// at INFO when a model has many such tokens.
+	pieces := vocab
+	scrubbed := 0
+	for _, s := range vocab {
 		if strings.IndexByte(s, 0) != -1 {
-			return nil, fmt.Errorf("xgrammar: vocab piece for token id %d contains a NUL byte; binary-safe vocab is not yet supported", i)
+			scrubbed++
+		}
+	}
+	if scrubbed > 0 {
+		slog.Debug("xgrammar: replaced NUL-bearing vocab pieces", "count", scrubbed, "vocab_size", len(vocab))
+		pieces = make([]string, len(vocab))
+		for i, s := range vocab {
+			if strings.IndexByte(s, 0) != -1 {
+				pieces[i] = ""
+				continue
+			}
+			pieces[i] = s
 		}
 	}
 
-	cVocab := make([]*C.char, len(vocab))
-	for i, s := range vocab {
+	cVocab := make([]*C.char, len(pieces))
+	for i, s := range pieces {
 		cVocab[i] = C.CString(s)
 	}
 	defer func() {
