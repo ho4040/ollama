@@ -44,6 +44,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"unsafe"
 )
@@ -56,6 +57,7 @@ const errBufSize = 512
 // for cstr() truncation at the first NUL.
 // Buffers must be returned via defer; do not retain past function scope.
 var errBufPool = sync.Pool{
+	// New returns a heap-allocated buffer pointer (not stack) so the pool can hold it across calls.
 	New: func() any {
 		b := make([]byte, errBufSize)
 		return &b
@@ -107,10 +109,8 @@ func NewTokenizerInfo(vocab []string, vocabType VocabType, stopTokens []int32, a
 	// need to switch to (lengths[], data[]) pairs to support binary-
 	// safe pieces.
 	for i, s := range vocab {
-		for j := 0; j < len(s); j++ {
-			if s[j] == 0 {
-				return nil, fmt.Errorf("xgrammar: vocab piece for token id %d contains a NUL byte; binary-safe vocab is not yet supported", i)
-			}
+		if strings.IndexByte(s, 0) != -1 {
+			return nil, fmt.Errorf("xgrammar: vocab piece for token id %d contains a NUL byte; binary-safe vocab is not yet supported", i)
 		}
 	}
 

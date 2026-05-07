@@ -65,6 +65,9 @@ func modelHelper(t testing.TB) tokenizer.Tokenizer {
 
 	f, err := os.Open(filepath.FromSlash("../tokenizer/testdata/llama3.2/encoder.json"))
 	if err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("test data missing (%s); skipping", err)
+		}
 		t.Fatal(err)
 	}
 	defer f.Close()
@@ -121,9 +124,10 @@ func TestGrammar(t *testing.T) {
 	}
 	defer grammar.Free()
 
+	rng := rand.New(rand.NewPCG(1, 2))
 	logits := make([]float32, len(tokenizer.Vocabulary().Values))
 	for i := range logits {
-		logits[i] = rand.Float32()
+		logits[i] = rng.Float32()
 	}
 	tokens := make([]token, len(logits))
 	for i := range tokens {

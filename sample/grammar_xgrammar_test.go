@@ -52,9 +52,10 @@ func TestXGrammarDispatchAndJSONMask(t *testing.T) {
 	// Build a fake-logits batch and apply the mask. We expect the
 	// grammar to reject at least one token at the JSON-start state
 	// (anything that isn't whitespace or '{' must be -inf).
+	rng := rand.New(rand.NewPCG(1, 2))
 	logits := make([]float32, len(tk.Vocabulary().Values))
 	for i := range logits {
-		logits[i] = rand.Float32()
+		logits[i] = rng.Float32()
 	}
 	tokens := make([]token, len(logits))
 	for i := range tokens {
@@ -107,9 +108,10 @@ func TestXGrammarSchemaDirect(t *testing.T) {
 		t.Fatalf("dispatcher returned %T; expected *xgrammarBackend", g)
 	}
 
+	rng := rand.New(rand.NewPCG(1, 2))
 	logits := make([]float32, len(tk.Vocabulary().Values))
 	for i := range logits {
-		logits[i] = rand.Float32()
+		logits[i] = rng.Float32()
 	}
 	tokens := make([]token, len(logits))
 	for i := range tokens {

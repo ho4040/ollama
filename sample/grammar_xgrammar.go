@@ -93,6 +93,7 @@ func (b *xgrammarBackend) Apply(tokens []token) {
 		return
 	}
 	negInf := float32(math.Inf(-1))
+	// id>>5 picks the int32 word; id&31 picks the bit within it.
 	for i := range tokens {
 		id := tokens[i].id
 		idx := id >> 5

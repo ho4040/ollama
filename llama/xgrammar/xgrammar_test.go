@@ -7,9 +7,8 @@ import (
 	"testing"
 )
 
-// minimalVocab returns a tiny vocabulary that contains the literal
-// pieces we need for the tests. The integration test below relies
-// only on these specific token strings; the first entry is the EOS.
+// minimalVocab is intentionally tiny (11 tokens) for fast unit tests; large-vocab integration coverage lives in the sample package.
+// The integration test below relies only on these specific token strings; the first entry is the EOS.
 func minimalVocab() ([]string, []int32) {
 	pieces := []string{
 		"</s>", // 0  EOS
