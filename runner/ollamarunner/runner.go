@@ -883,7 +883,7 @@ func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var grammar *sample.GrammarSampler
+	var grammar sample.Grammar
 	var err error
 	if req.Grammar != "" {
 		grammar, err = sample.NewGrammarSampler(s.model.(tokenizer.Tokenizer), req.Grammar)

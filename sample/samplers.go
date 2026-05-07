@@ -5,9 +5,6 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
-
-	"github.com/ollama/ollama/llama"
-	"github.com/ollama/ollama/tokenizer"
 )
 
 // token represents information about a single token during sampling
@@ -22,7 +19,7 @@ type Sampler struct {
 	topP        float32
 	minP        float32
 	temperature float32
-	grammar     *GrammarSampler
+	grammar     Grammar
 }
 
 func (s *Sampler) Sample(logits []float32) (int32, error) {
@@ -127,7 +124,7 @@ func (s *Sampler) sample(tokens []token) (token, error) {
 }
 
 // TODO(parthsareen): update sampler interface to use json unmarshal https://github.com/ollama/ollama/issues/9278
-func NewSampler(temperature float32, topK int, topP float32, minP float32, seed int, grammar *GrammarSampler) Sampler {
+func NewSampler(temperature float32, topK int, topP float32, minP float32, seed int, grammar Grammar) Sampler {
 	var rng *rand.Rand
 	if seed != -1 {
 		// PCG requires two parameters: sequence and stream
@@ -164,43 +161,3 @@ func NewSampler(temperature float32, topK int, topP float32, minP float32, seed 
 	}
 }
 
-type GrammarSampler struct {
-	grammar *llama.Grammar
-}
-
-func NewGrammarSampler(tok tokenizer.Tokenizer, grammarStr string) (*GrammarSampler, error) {
-	vocabIds := make([]uint32, len(tok.Vocabulary().Values))
-	pieces := make([]string, len(tok.Vocabulary().Values))
-	for i := range tok.Vocabulary().Values {
-		pieces[i], _ = tok.Decode([]int32{int32(i)})
-		vocabIds[i] = uint32(i)
-	}
-
-	grammar := llama.NewGrammar(grammarStr, vocabIds, pieces, tok.Vocabulary().EOS)
-	if grammar == nil {
-		return nil, errors.New("sample: failed to initialize grammar")
-	}
-
-	return &GrammarSampler{grammar: grammar}, nil
-}
-
-func (g *GrammarSampler) Apply(tokens []token) {
-	tds := make([]llama.TokenData, len(tokens))
-	for i, token := range tokens {
-		tds[i].ID = token.id
-		tds[i].Logit = token.value
-	}
-	g.grammar.Apply(tds)
-
-	for i := range tokens {
-		tokens[i].value = tds[i].Logit
-	}
-}
-
-func (g *GrammarSampler) Accept(token int32) {
-	g.grammar.Accept(token)
-}
-
-func (g *GrammarSampler) Free() {
-	g.grammar.Free()
-}
